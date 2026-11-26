@@ -244,7 +244,7 @@ final class MediaKeyInterceptor {
                     let v = KeyboardBacklightManager.shared.rawBrightness
                     BoringViewCoordinator.shared.toggleSneakPeek(status: true, type: .backlight, value: CGFloat(v))
                 } else {
-                    let v = BrightnessManager.shared.rawBrightness
+                    let v = BrightnessManager.shared.displayBrightness
                     BoringViewCoordinator.shared.toggleSneakPeek(status: true, type: .brightness, value: CGFloat(v))
                 }
             case .keyboardBrightnessUp, .keyboardBrightnessDown:

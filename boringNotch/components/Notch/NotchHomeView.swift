@@ -13,14 +13,10 @@ import SwiftUI
 // MARK: - Music Player Components
 
 struct MusicPlayerView: View {
-    @EnvironmentObject var vm: BoringViewModel
-    let albumArtNamespace: Namespace.ID
-
     var body: some View {
-        HStack {
-            AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
-            MusicControlsView().drawingGroup().compositingGroup()
-        }
+        MusicControlsView()
+            .drawingGroup()
+            .compositingGroup()
     }
 }
 
@@ -423,7 +419,7 @@ struct NotchHomeView: View {
     @ObservedObject var webcamManager = WebcamManager.shared
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
-    let albumArtNamespace: Namespace.ID
+    @ObservedObject var notifications = NotchNotificationPresenter.shared
 
     var body: some View {
         Group {
@@ -441,7 +437,19 @@ struct NotchHomeView: View {
 
     private var mainContent: some View {
         HStack(alignment: .top, spacing: (shouldShowCamera && Defaults[.showCalendar]) ? 10 : 15) {
-            MusicPlayerView(albumArtNamespace: albumArtNamespace)
+            if Defaults[.notchNotificationsEnabled], !notifications.history.isEmpty {
+                NotificationHistoryList()
+                    .frame(width: 320, alignment: .leading)
+                    .frame(maxHeight: .infinity)
+                    .onHover { hovering in
+                        vm.isHoveringNotifications = hovering
+                    }
+                    .onDisappear {
+                        vm.isHoveringNotifications = false
+                    }
+            }
+
+            MusicPlayerView()
 
             if Defaults[.showCalendar] {
                 CalendarView()

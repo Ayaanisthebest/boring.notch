@@ -43,7 +43,8 @@ struct SystemEventIndicatorModifier: View {
                     Image(systemName: "sun.max.fill")
                         .contentTransition(.symbolEffect)
                         .frame(width: 20, height: 15)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(icon.isEmpty ? AnyShapeStyle(.white) : AnyShapeStyle(.yellow))
+                        .shadow(color: icon.isEmpty ? .clear : .orange.opacity(0.8), radius: icon.isEmpty ? 0 : 5)
                 case .backlight:
                     Image(systemName: value > 0.5 ? "light.max" : "light.min")
                         .contentTransition(.interpolate)
@@ -60,8 +61,19 @@ struct SystemEventIndicatorModifier: View {
             }
             if (eventType != .mic) {
                 DraggableProgressBar(value: $value)
-                if Defaults[.showClosedNotchHUDPercentage] {
-                    Text("\(Int(value * 100))%")
+                if eventType == .brightness && !icon.isEmpty {
+                    Text(icon)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.orange.opacity(0.18))
+                                .overlay(Capsule().strokeBorder(Color.orange.opacity(0.45), lineWidth: 1))
+                        )
+                } else if Defaults[.showClosedNotchHUDPercentage] {
+                    Text("\(Int((value * 100).rounded()))%")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white)
                         .monospacedDigit()
@@ -121,7 +133,8 @@ struct DraggableProgressBar: View {
                                 )) :
                                 AnyShapeStyle(Defaults[.systemEventIndicatorUseAccent] ? Color.effectiveAccent : Color.white)
                         )
-                        .frame(width: max(0, min(geo.size.width * value, geo.size.width)))
+                        .frame(width: max(0, min(geo.size.width * min(value, 1), geo.size.width)))
+                        .animation(isDragging ? nil : .smooth(duration: 0.28), value: value)
                         .shadow(color: Defaults[.systemEventIndicatorShadow] ?
                             (Defaults[.systemEventIndicatorUseAccent] ?
                                 Color.effectiveAccent.ensureMinimumBrightness(factor: 0.7) :

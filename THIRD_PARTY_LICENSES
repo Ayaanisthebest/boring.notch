@@ -431,3 +431,21 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 This Source Code Form is "Incompatible With Secondary Licenses", as
 defined by the Mozilla Public License, v. 2.0.
+
+-----------------------------------------------------------------------------
+                        GNU GENERAL PUBLIC LICENSE v3
+        applies to adapted Extra Brightness / XDR unlock code inspired by:
+        - BrightIntosh, Copyright (c) Niklas Rousset and contributors
+          https://github.com/niklasr22/BrightIntosh
+-----------------------------------------------------------------------------
+
+BrightIntosh is licensed under the GNU General Public License v3.0.
+boring.notch adapts its HDR-overlay + gamma-boost technique for unlocking
+Liquid Retina XDR peak brightness. See the project LICENSE for GPL-3.0 terms,
+and https://github.com/niklasr22/BrightIntosh for the original implementation.
+
+-----------------------------------------------------------------------------
+  Extra brightness backends also adapted from:
+  - Fullbright — https://github.com/137137137/Fullbright
+  - xdr-boost (MIT) — https://github.com/levelsio/xdr-boost, Copyright (c) Pieter Levels
+-----------------------------------------------------------------------------

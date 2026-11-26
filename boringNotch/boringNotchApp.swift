@@ -83,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             screenUnlockedObserver = nil
         }
         MusicManager.shared.destroy()
+        ExtraBrightnessManager.shared.setIntensity(0)
         cleanupDragDetectors()
         cleanupWindows()
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
@@ -410,6 +411,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        KeyboardShortcuts.onKeyDown(for: .toggleExtraBrightness) {
+            Task { @MainActor in
+                ExtraBrightnessManager.shared.toggle()
+                if Defaults[.hudReplacement] {
+                    BoringViewCoordinator.shared.toggleSneakPeek(
+                        status: true,
+                        type: .brightness,
+                        value: CGFloat(BrightnessManager.shared.displayBrightness)
+                    )
+                }
+            }
+        }
+
+        // Touch the singleton so Defaults observation + support check start immediately.
+        _ = ExtraBrightnessManager.shared
+
         if !Defaults[.showOnAllDisplays] {
             let viewModel = self.vm
             let window = createBoringNotchWindow(
@@ -436,6 +453,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         previousScreens = NSScreen.screens
+
+        if Defaults[.notchNotificationsEnabled] {
+            if !NotificationCenterMonitor.isTrusted() {
+                NotificationCenterMonitor.prompt()
+            }
+            NotificationCenterMonitor.shared.start()
+        }
     }
 
     func playWelcomeSound() {

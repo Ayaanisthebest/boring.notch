@@ -42,6 +42,9 @@ struct SettingsView: View {
                 NavigationLink(value: "HUD") {
                     Label("HUDs", systemImage: "dial.medium.fill")
                 }
+                NavigationLink(value: "Notifications") {
+                    Label("Notifications", systemImage: "bell")
+                }
                 NavigationLink(value: "Battery") {
                     Label("Battery", systemImage: "battery.100.bolt")
                 }
@@ -81,6 +84,8 @@ struct SettingsView: View {
                     CalendarSettings()
                 case "HUD":
                     HUD()
+                case "Notifications":
+                    NotificationSettings()
                 case "Battery":
                     Charge()
                 case "Shelf":
@@ -469,6 +474,7 @@ struct HUD: View {
     @Default(.optionKeyAction) var optionKeyAction
     @Default(.hudReplacement) var hudReplacement
     @ObservedObject var coordinator = BoringViewCoordinator.shared
+    @ObservedObject private var extraBrightness = ExtraBrightnessManager.shared
     @State private var accessibilityAuthorized = false
     
     var body: some View {
@@ -506,6 +512,60 @@ struct HUD: View {
                     }
                     .padding(.top, 6)
                 }
+            }
+
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Brightness past 100%")
+                            .font(.headline)
+                        Text(extraBrightness.isSupported
+                              ? "After you hit full brightness, keep pressing up to use XDR peak brightness."
+                              : "Requires a MacBook Pro with Liquid Retina XDR, Pro Display XDR, or Studio Display XDR.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 40)
+                    Defaults.Toggle("", key: .extraBrightnessEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.large)
+                        .disabled(!extraBrightness.isSupported)
+                }
+
+                Picker("XDR method", selection: Binding(
+                    get: { Defaults[.extraBrightnessBackend] },
+                    set: { Defaults[.extraBrightnessBackend] = $0 }
+                )) {
+                    ForEach(ExtraBrightnessBackend.allCases) { backend in
+                        Text(backend.title).tag(backend)
+                    }
+                }
+                .disabled(!extraBrightness.isSupported || !Defaults[.extraBrightnessEnabled])
+
+                Text(Defaults[.extraBrightnessBackend].subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if extraBrightness.intensity > 0.001 {
+                    LabeledContent("XDR level") {
+                        Text(extraBrightness.intensity >= 0.999 ? "MAX" : "50%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    LabeledContent("Boost") {
+                        Text(String(format: "%.1f×", extraBrightness.currentFactor))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            } header: {
+                Text("Extra Brightness")
+            } footer: {
+                Text("Past 100%: one press → XDR 50%, another → MAX. Methods adapted from BrightIntosh, Fullbright, and xdr-boost. May conflict with f.lux / Night Shift.")
+                    .foregroundStyle(.secondary)
             }
             
             Section {
@@ -587,6 +647,83 @@ struct HUD: View {
             if let granted = notification.userInfo?["granted"] as? Bool {
                 accessibilityAuthorized = granted
             }
+        }
+    }
+}
+
+struct NotificationSettings: View {
+    @Default(.notchNotificationsEnabled) private var enabled
+    @Default(.notchNotificationStyle) private var style
+    @State private var accessibilityAuthorized = NotificationCenterMonitor.isTrusted()
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show notifications in the notch")
+                            .font(.headline)
+                        Text("Banners from other apps appear around the notch, and the system banner is dismissed. The first frame of a banner can still flash in the corner.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 40)
+                    Defaults.Toggle("", key: .notchNotificationsEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.large)
+                }
+                .onChange(of: enabled) { _, isOn in
+                    if isOn {
+                        if !NotificationCenterMonitor.isTrusted() {
+                            NotificationCenterMonitor.prompt()
+                        }
+                        NotificationCenterMonitor.shared.start()
+                    } else {
+                        NotificationCenterMonitor.shared.stop()
+                    }
+                    accessibilityAuthorized = NotificationCenterMonitor.isTrusted()
+                }
+
+                if enabled && !accessibilityAuthorized {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Accessibility access is required to read and dismiss notification banners.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Button("Request Accessibility") {
+                            NotificationCenterMonitor.prompt()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.top, 6)
+                }
+            }
+
+            Section {
+                Picker("Style", selection: $style) {
+                    ForEach(NotchNotificationStyle.allCases) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                Text(style.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Preview") {
+                    NotchNotificationPresenter.shared.preview()
+                }
+            } header: {
+                Text("Animation")
+            }
+        }
+        .accentColor(.effectiveAccent)
+        .navigationTitle("Notifications")
+        .onAppear {
+            accessibilityAuthorized = NotificationCenterMonitor.isTrusted()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            accessibilityAuthorized = NotificationCenterMonitor.isTrusted()
         }
     }
 }
@@ -1739,6 +1876,7 @@ struct Shortcuts: View {
             }
             Section {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
+                KeyboardShortcuts.Recorder("Toggle XDR Brightness:", name: .toggleExtraBrightness)
             }
         }
         .accentColor(.effectiveAccent)

@@ -1,3 +1,20 @@
+> **This is a modified copy of [TheBoredTeam/boring.notch](https://github.com/TheBoredTeam/boring.notch).**
+> The original project is the work of its authors. This copy adds my own changes on top of upstream commit `9b3403b` and is not affiliated with or endorsed by them.
+
+## My changes
+
+- **Extra brightness:** brightness keys can continue past 100% into XDR headroom on supported MacBook Pro displays, with selectable backends.
+- **Smoother brightness:** the helper uses a hardware ramp, with an instant fallback.
+- **Notifications in the notch:** banners from other apps are shown around the notch, with animation styles and a history list. Needs Accessibility access.
+
+### Notes on this copy
+
+- Extra brightness methods are adapted from [BrightIntosh](https://github.com/niklasr22/BrightIntosh) (GPL-3.0), [Fullbright](https://github.com/137137137/Fullbright) and [xdr-boost](https://github.com/levelsio/xdr-boost) (MIT).
+
+The upstream README follows. Its download links and badges point to the original project, not to this copy.
+
+---
+
 <h1 align="center">
   <br>
   <a href="http://theboring.name"><img src="https://framerusercontent.com/images/RFK4vs0kn8pRMuOO58JeyoemXA.png?scale-down-to=256" alt="Boring Notch" width="150"></a>

@@ -15,6 +15,11 @@ struct InlineHUD: View {
     @Binding var icon: String
     @Binding var hoverAnimation: Bool
     @Binding var gestureProgress: CGFloat
+
+    private var isXDRBrightness: Bool {
+        type == .brightness && !icon.isEmpty
+    }
+
     var body: some View {
         HStack {
             HStack(spacing: 5) {
@@ -34,32 +39,42 @@ struct InlineHUD: View {
                                     .frame(width: 20, height: 15, alignment: .leading)
                             }
                         case .brightness:
-                            Image(systemName: BrightnessSymbol(value))
-                                .contentTransition(.interpolate)
+                            Image(systemName: isXDRBrightness ? "sun.max.fill" : BrightnessSymbol(value))
+                                .contentTransition(.symbolEffect)
+                                .symbolRenderingMode(isXDRBrightness ? .palette : .monochrome)
+                                .foregroundStyle(
+                                    isXDRBrightness ? AnyShapeStyle(.yellow) : AnyShapeStyle(.white),
+                                    isXDRBrightness ? AnyShapeStyle(.orange) : AnyShapeStyle(.white)
+                                )
+                                .shadow(color: isXDRBrightness ? .orange.opacity(0.85) : .clear, radius: isXDRBrightness ? 6 : 0)
                                 .frame(width: 20, height: 15, alignment: .center)
                         case .backlight:
                             Image(systemName: value > 0.5 ? "light.max" : "light.min")
                                 .contentTransition(.interpolate)
                                 .frame(width: 20, height: 15, alignment: .center)
+                                .foregroundStyle(.white)
                         case .mic:
                             Image(systemName: "mic")
                                 .symbolRenderingMode(.hierarchical)
                                 .symbolVariant(value > 0 ? .none : .slash)
                                 .contentTransition(.interpolate)
                                 .frame(width: 20, height: 15, alignment: .center)
+                                .foregroundStyle(.white)
                         default:
                             EmptyView()
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(isXDRBrightness ? Color.primary : Color.white)
                 .symbolVariant(.fill)
                 
                 Text(Type2Name(type))
                     .font(.subheadline)
-                    .fontWeight(.medium)
+                    .fontWeight(.semibold)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .allowsTightening(true)
-                    .contentTransition(.numericText())
+                    .contentTransition(.interpolate)
+                    .foregroundStyle(isXDRBrightness ? Color.orange.opacity(0.95) : .white)
             }
             .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.notchSize.height - (hoverAnimation ? 0 : 12), alignment: .leading)
             
@@ -76,6 +91,24 @@ struct InlineHUD: View {
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .contentTransition(.interpolate)
+                } else if isXDRBrightness {
+                    HStack(spacing: 6) {
+                        DraggableProgressBar(value: $value)
+                        Text(icon)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.orange.opacity(0.18))
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(Color.orange.opacity(0.45), lineWidth: 1)
+                                    )
+                            )
+                            .contentTransition(.numericText())
+                    }
                 } else {
                         HStack {
                         DraggableProgressBar(value: $value, onChange: { v in
@@ -94,7 +127,7 @@ struct InlineHUD: View {
                                 .allowsTightening(true)
                                 .multilineTextAlignment(.trailing)
                         } else if Defaults[.showClosedNotchHUDPercentage] {
-                            Text("\(Int(value * 100))%")
+                            Text("\(Int((value * 100).rounded()))%")
                                 .font(.caption)
                                 .fontWeight(.medium)
                                 .foregroundStyle(.gray)
@@ -109,6 +142,8 @@ struct InlineHUD: View {
             .frame(width: 100 - (hoverAnimation ? 0 : 12) + gestureProgress / 2, height: vm.closedNotchSize.height - (hoverAnimation ? 0 : 12), alignment: .center)
         }
         .frame(height: vm.closedNotchSize.height + (hoverAnimation ? 8 : 0), alignment: .center)
+        .animation(.smooth(duration: 0.28), value: icon)
+        .animation(.smooth(duration: 0.28), value: isXDRBrightness)
     }
     
     func SpeakerSymbol(_ value: CGFloat) -> String {
@@ -142,7 +177,7 @@ struct InlineHUD: View {
             case .volume:
                 return "Volume"
             case .brightness:
-                return "Brightness"
+                return isXDRBrightness ? "XDR activated" : "Brightness"
             case .backlight:
                 return "Backlight"
             case .mic:

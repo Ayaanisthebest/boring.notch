@@ -23,6 +23,7 @@ struct ContentView: View {
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
+    @ObservedObject var notifications = NotchNotificationPresenter.shared
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
@@ -49,12 +50,20 @@ struct ContentView: View {
                 : cornerRadiusInsets.closed.top
     }
 
+    private var bottomCornerRadius: CGFloat {
+        if vm.notchState == .open && Defaults[.cornerRadiusScaling] {
+            return cornerRadiusInsets.opened.bottom
+        }
+        if notifications.occupiesNotch && notifications.phase == .expanded {
+            return 26
+        }
+        return cornerRadiusInsets.closed.bottom
+    }
+
     private var currentNotchShape: NotchShape {
         NotchShape(
             topCornerRadius: topCornerRadius,
-            bottomCornerRadius: ((vm.notchState == .open) && Defaults[.cornerRadiusScaling])
-                ? cornerRadiusInsets.opened.bottom
-                : cornerRadiusInsets.closed.bottom
+            bottomCornerRadius: bottomCornerRadius
         )
     }
 
@@ -126,13 +135,23 @@ struct ContentView: View {
                         return view
                             .animation(vm.notchState == .open ? openAnimation : closeAnimation, value: vm.notchState)
                             .animation(.smooth, value: gestureProgress)
+                            .animation(
+                                notifications.phase == .resting
+                                    ? Animation.spring(response: 0.4, dampingFraction: 1.0)
+                                    : Animation.spring(response: 0.5, dampingFraction: 0.76),
+                                value: notifications.phase
+                            )
                     }
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
                     }
                     .onTapGesture {
-                        doOpen()
+                        if notifications.occupiesNotch, let item = notifications.current {
+                            notifications.activate(item)
+                        } else {
+                            doOpen()
+                        }
                     }
                     .conditionalModifier(Defaults[.enableGestures]) { view in
                         view
@@ -165,6 +184,11 @@ struct ContentView: View {
                             withAnimation {
                                 isHovering = false
                             }
+                        }
+                    }
+                    .onChange(of: notifications.isPresenting) { _, presenting in
+                        if presenting && vm.notchState == .open {
+                            vm.close()
                         }
                     }
                     .onChange(of: vm.isBatteryPopoverActive) {
@@ -257,7 +281,14 @@ struct ContentView: View {
                     .padding(.top, 40)
                     Spacer()
                 } else {
-                    if coordinator.expandingView.type == .battery && coordinator.expandingView.show
+                    if notifications.occupiesNotch && vm.notchState == .closed {
+                        LiveNotificationView(
+                            presenter: notifications,
+                            housingWidth: vm.closedNotchSize.width,
+                            housingHeight: max(vm.effectiveClosedNotchHeight, 24),
+                            maxContentWidth: windowSize.width - cornerRadiusInsets.closed.bottom * 2
+                        )
+                    } else if coordinator.expandingView.type == .battery && coordinator.expandingView.show
                         && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
                     {
                         HStack(spacing: 0) {
@@ -346,7 +377,7 @@ struct ContentView: View {
                 VStack {
                     switch coordinator.currentView {
                     case .home:
-                        NotchHomeView(albumArtNamespace: albumArtNamespace)
+                        NotchHomeView()
                     case .shelf:
                         ShelfView()
                     }
@@ -583,7 +614,7 @@ struct ContentView: View {
     }
 
     private func handleUpGesture(translation: CGFloat, phase: NSEvent.Phase) {
-        guard vm.notchState == .open && !vm.isHoveringCalendar else { return }
+        guard vm.notchState == .open && !vm.isHoveringCalendar && !vm.isHoveringNotifications else { return }
 
         withAnimation(animationSpring) {
             gestureProgress = (translation / Defaults[.gestureSensitivity]) * -20

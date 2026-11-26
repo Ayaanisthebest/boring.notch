@@ -99,20 +99,29 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
     @objc func setKeyboardBrightness(_ value: Float, with reply: @escaping (Bool) -> Void) {
         reply(Self.keyboardClient.setBrightness(value))
     }
+
     // MARK: - Screen Brightness (moved from client app into helper)
 
     @objc func isScreenBrightnessAvailable(with reply: @escaping (Bool) -> Void) {
+        guard let displayID = brightnessDisplayID() else {
+            reply(false)
+            return
+        }
         var b: Float = 0
-        reply(displayServicesGetBrightness(displayID: CGMainDisplayID(), out: &b) || ioServiceFor(displayID: CGMainDisplayID()) != nil)
+        reply(displayServicesGetBrightness(displayID: displayID, out: &b) || ioServiceFor(displayID: displayID) != nil)
     }
 
     @objc func currentScreenBrightness(with reply: @escaping (NSNumber?) -> Void) {
+        guard let displayID = brightnessDisplayID() else {
+            reply(nil)
+            return
+        }
         var b: Float = 0
-        if displayServicesGetBrightness(displayID: CGMainDisplayID(), out: &b) {
+        if displayServicesGetBrightness(displayID: displayID, out: &b) {
             reply(NSNumber(value: b))
             return
         }
-        if let io = ioServiceFor(displayID: CGMainDisplayID()) {
+        if let io = ioServiceFor(displayID: displayID) {
             var level: Float = 0
             if IODisplayGetFloatParameter(io, 0, kIODisplayBrightnessKey as CFString, &level) == kIOReturnSuccess {
                 IOObjectRelease(io)
@@ -124,13 +133,49 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         reply(nil)
     }
 
+    /// Cancels in-flight absolute settle work when the user keeps adjusting brightness.
+    private var brightnessSettleWorkItem: DispatchWorkItem?
+    private let brightnessQueue = DispatchQueue(label: "boringnotch.brightness", qos: .userInteractive)
+
     @objc func setScreenBrightness(_ value: Float, with reply: @escaping (Bool) -> Void) {
         let clamped = max(0, min(1, value))
-        if displayServicesSetBrightness(displayID: CGMainDisplayID(), value: clamped) {
-            reply(true)
+        guard let displayID = brightnessDisplayID() else {
+            reply(false)
             return
         }
-        if let io = ioServiceFor(displayID: CGMainDisplayID()) {
+
+        var current: Float = 0
+        let canRead = displayServicesGetBrightness(displayID: displayID, out: &current)
+        let canChange = displayServicesCanChangeBrightness(displayID: displayID)
+
+        if canRead || canChange {
+            // Kick a hardware ramp first (same path macOS uses). Do NOT immediately
+            // follow with SetBrightness — that cancels the smooth transition.
+            var startedSmooth = false
+            if canRead {
+                let delta = clamped - current
+                if abs(delta) > 0.0005, displayServicesSupportsSmoothBrightness() {
+                    // Return codes for Smooth aren't well documented; if the symbol
+                    // exists, invoke it and settle absolute brightness shortly after.
+                    _ = displayServicesSetBrightnessSmooth(displayID: displayID, delta: delta)
+                    startedSmooth = true
+                }
+            }
+
+            if startedSmooth {
+                scheduleBrightnessSettle(displayID: displayID, value: clamped)
+                reply(true)
+                return
+            }
+
+            // Instant fallback when Smooth isn't available or delta is tiny.
+            if applyAbsoluteBrightness(displayID: displayID, value: clamped) {
+                reply(true)
+                return
+            }
+        }
+
+        if let io = ioServiceFor(displayID: displayID) {
             let ok = IODisplaySetFloatParameter(io, 0, kIODisplayBrightnessKey as CFString, clamped) == kIOReturnSuccess
             IOObjectRelease(io)
             reply(ok)
@@ -139,7 +184,83 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         reply(false)
     }
 
+    private func scheduleBrightnessSettle(displayID: CGDirectDisplayID, value: Float) {
+        brightnessSettleWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.applyAbsoluteBrightness(displayID: displayID, value: value)
+        }
+        brightnessSettleWorkItem = work
+        // Match ~macOS ramp length; retargeting mid-ramp cancels the previous settle.
+        brightnessQueue.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
+    @discardableResult
+    private func applyAbsoluteBrightness(displayID: CGDirectDisplayID, value: Float) -> Bool {
+        let ok = displayServicesSetBrightness(displayID: displayID, value: value)
+        // User brightness of 1.0 alone often leaves headroom on Apple displays —
+        // SetLinearBrightness is required to actually hit full.
+        if value >= 0.999 {
+            _ = displayServicesSetLinearBrightness(displayID: displayID, value: 1.0)
+        } else if value <= 0.001 {
+            _ = displayServicesSetLinearBrightness(displayID: displayID, value: 0.0)
+        }
+        return ok
+    }
+
     // MARK: - Private helpers for DisplayServices / IOKit access
+
+    /// Prefer a controllable built-in display; fall back to main / any DisplayServices display.
+    private func brightnessDisplayID() -> CGDirectDisplayID? {
+        var displayCount: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {
+            let main = CGMainDisplayID()
+            return main == kCGNullDirectDisplay ? nil : main
+        }
+
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        guard CGGetOnlineDisplayList(displayCount, &displays, &displayCount) == .success else {
+            let main = CGMainDisplayID()
+            return main == kCGNullDirectDisplay ? nil : main
+        }
+
+        let online = Array(displays.prefix(Int(displayCount)))
+
+        if let builtIn = online.first(where: {
+            CGDisplayIsBuiltin($0) != 0 && displayServicesCanChangeBrightness(displayID: $0)
+        }) {
+            return builtIn
+        }
+
+        if let builtIn = online.first(where: { CGDisplayIsBuiltin($0) != 0 }) {
+            var b: Float = 0
+            if displayServicesGetBrightness(displayID: builtIn, out: &b) || ioServiceFor(displayID: builtIn) != nil {
+                return builtIn
+            }
+        }
+
+        let main = CGMainDisplayID()
+        if main != kCGNullDirectDisplay {
+            var b: Float = 0
+            if displayServicesCanChangeBrightness(displayID: main)
+                || displayServicesGetBrightness(displayID: main, out: &b) {
+                return main
+            }
+        }
+
+        if let controllable = online.first(where: { displayServicesCanChangeBrightness(displayID: $0) }) {
+            return controllable
+        }
+
+        if let readable = online.first(where: {
+            var b: Float = 0
+            return displayServicesGetBrightness(displayID: $0, out: &b)
+        }) {
+            return readable
+        }
+
+        return main != kCGNullDirectDisplay ? main : nil
+    }
+
     private func displayServicesGetBrightness(displayID: CGDirectDisplayID, out: inout Float) -> Bool {
         guard let sym = dlsym(DisplayServicesHandle.handle, "DisplayServicesGetBrightness") else { return false }
         typealias Fn = @convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32
@@ -155,6 +276,32 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         typealias Fn = @convention(c) (CGDirectDisplayID, Float) -> Int32
         let fn = unsafeBitCast(sym, to: Fn.self)
         return fn(displayID, value) == 0
+    }
+
+    /// Hardware ramp. Lunar passes a delta (target − current), not an absolute level.
+    private func displayServicesSetBrightnessSmooth(displayID: CGDirectDisplayID, delta: Float) -> Bool {
+        guard let sym = dlsym(DisplayServicesHandle.handle, "DisplayServicesSetBrightnessSmooth") else { return false }
+        typealias Fn = @convention(c) (CGDirectDisplayID, Float) -> Int32
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        return fn(displayID, delta) == 0
+    }
+
+    private func displayServicesSupportsSmoothBrightness() -> Bool {
+        dlsym(DisplayServicesHandle.handle, "DisplayServicesSetBrightnessSmooth") != nil
+    }
+
+    private func displayServicesSetLinearBrightness(displayID: CGDirectDisplayID, value: Float) -> Bool {
+        guard let sym = dlsym(DisplayServicesHandle.handle, "DisplayServicesSetLinearBrightness") else { return false }
+        typealias Fn = @convention(c) (CGDirectDisplayID, Float) -> Int32
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        return fn(displayID, value) == 0
+    }
+
+    private func displayServicesCanChangeBrightness(displayID: CGDirectDisplayID) -> Bool {
+        guard let sym = dlsym(DisplayServicesHandle.handle, "DisplayServicesCanChangeBrightness") else { return false }
+        typealias Fn = @convention(c) (CGDirectDisplayID) -> Bool
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        return fn(displayID)
     }
 
     private func ioServiceFor(displayID: CGDirectDisplayID) -> io_service_t? {

@@ -68,6 +68,22 @@ enum OptionKeyAction: String, CaseIterable, Identifiable, Defaults.Serializable 
     var id: String { self.rawValue }
 }
 
+enum NotchNotificationStyle: String, CaseIterable, Identifiable, Defaults.Serializable {
+    case twoStage = "Two-stage island"
+    case dropCard = "Drop card"
+
+    var id: String { self.rawValue }
+
+    var detail: String {
+        switch self {
+        case .twoStage:
+            return "The notch first stretches into an icon and app name, then opens into the full message."
+        case .dropCard:
+            return "The notch opens straight into the full message."
+        }
+    }
+}
+
 extension Defaults.Keys {
     // MARK: General
     static let menubarIcon = Key<Bool>("menubarIcon", default: true)
@@ -152,6 +168,14 @@ extension Defaults.Keys {
     
     // MARK: HUD
     static let hudReplacement = Key<Bool>("hudReplacement", default: false)
+    /// Unlock MacBook Pro / XDR peak brightness beyond the normal SDR ceiling (BrightIntosh-style).
+    /// When enabled, brightness keys continue into XDR headroom after hitting 100%.
+    static let extraBrightnessEnabled = Key<Bool>("extraBrightnessEnabled", default: true)
+    static let extraBrightnessIntensity = Key<Double>("extraBrightnessIntensity", default: 0)
+    static let extraBrightnessBackend = Key<ExtraBrightnessBackend>(
+        "extraBrightnessBackend",
+        default: .brightIntosh
+    )
     static let inlineHUD = Key<Bool>("inlineHUD", default: false)
     static let enableGradient = Key<Bool>("enableGradient", default: false)
     static let systemEventIndicatorShadow = Key<Bool>("systemEventIndicatorShadow", default: false)
@@ -159,6 +183,8 @@ extension Defaults.Keys {
     static let showOpenNotchHUD = Key<Bool>("showOpenNotchHUD", default: true)
     static let showOpenNotchHUDPercentage = Key<Bool>("showOpenNotchHUDPercentage", default: true)
     static let showClosedNotchHUDPercentage = Key<Bool>("showClosedNotchHUDPercentage", default: false)
+    static let notchNotificationsEnabled = Key<Bool>("notchNotificationsEnabled", default: true)
+    static let notchNotificationStyle = Key<NotchNotificationStyle>("notchNotificationStyle", default: .twoStage)
     // Option key modifier behaviour for media keys
     static let optionKeyAction = Key<OptionKeyAction>("optionKeyAction", default: OptionKeyAction.openSettings)
     
